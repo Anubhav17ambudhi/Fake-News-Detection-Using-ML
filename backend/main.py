@@ -31,7 +31,7 @@ async def verify_article(request: ArticleRequest):
         print("[System] Firing ML and Agent branches...")
         
         ml_task = asyncio.wait_for(predict_ml(request.text), timeout=15.0)
-        agent_task = asyncio.wait_for(run_agent(request.text), timeout=15.0)
+        agent_task = asyncio.wait_for(run_agent(request.text), timeout=555.0)
         
         ml_result, agent_result = await asyncio.gather(ml_task, agent_task)
         
