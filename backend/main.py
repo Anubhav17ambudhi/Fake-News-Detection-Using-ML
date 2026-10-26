@@ -1,18 +1,16 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import asyncio
+import time
 
-# We will build these two files next
 from services.ml_service import predict_ml
-# from services.agent_service import run_agent
+from services.agent_service import run_agent
 
 app = FastAPI(title="Fake News Detection API")
 
-# Define the incoming data format
 class ArticleRequest(BaseModel):
     text: str
 
-# Define the outgoing data format
 class VerificationResponse(BaseModel):
     ml_confidence: float
     ml_verdict: str
@@ -23,31 +21,36 @@ class VerificationResponse(BaseModel):
 @app.post("/api/v1/verify", response_model=VerificationResponse)
 async def verify_article(request: ArticleRequest):
     if len(request.text.split()) < 20:
-        raise HTTPException(status_code=400, detail="Article text is too short. Provide at least 20 words.")
+        raise HTTPException(status_code=400, detail="Article too short.")
 
-    # Run BOTH branches concurrently to save time
-    # (We are mocking the agent response for now until we build it)
-    ml_task = predict_ml(request.text)
-    
-    # agent_task = run_agent(request.text) 
-    
-    # Wait for both tasks to finish
-    # ml_result, agent_result = await asyncio.gather(ml_task, agent_task)
-    
-    # Temporary mock data for testing
-    ml_result = await ml_task 
-    agent_result = {
-        "reasoning": "Agentic verification is under construction.",
-        "sources": []
-    }
+    print("\n--- NEW REQUEST RECEIVED ---")
+    start_time = time.time()
 
-    # The Aggregation Logic
-    # If the ML model outputs < 0.5, it predicts "Fake"
+    # Wrap the tasks in a 15-second timeout so they can't hang forever
+    try:
+        print("[System] Firing ML and Agent branches...")
+        
+        ml_task = asyncio.wait_for(predict_ml(request.text), timeout=15.0)
+        agent_task = asyncio.wait_for(run_agent(request.text), timeout=15.0)
+        
+        ml_result, agent_result = await asyncio.gather(ml_task, agent_task)
+        
+        print(f"[System] Both branches completed in {time.time() - start_time:.2f} seconds!")
+
+    except asyncio.TimeoutError:
+        print("[System ERROR] A branch timed out after 15 seconds!")
+        raise HTTPException(status_code=504, detail="The AI or Search service took too long to respond. Please try again.")
+
+    # EVALUATE ML BRANCH
     ml_verdict = "Real" if ml_result > 0.5 else "Fake"
-    
-    # For now, the final verdict is just the ML verdict. 
-    # Later, we will add logic to let the Agent override this.
     final_verdict = ml_verdict
+    agent_reasoning_lower = agent_result["reasoning"].lower()
+    
+    # AGGREGATE
+    if ml_verdict == "Real" and ("contradicted" in agent_reasoning_lower or "false" in agent_reasoning_lower):
+        final_verdict = "Fake"
+    elif ml_verdict == "Fake" and "supported" in agent_reasoning_lower:
+        final_verdict = "Real"
 
     return VerificationResponse(
         ml_confidence=ml_result,
@@ -56,7 +59,3 @@ async def verify_article(request: ArticleRequest):
         agent_sources=agent_result["sources"],
         final_verdict=final_verdict
     )
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
