@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+pydantic
+tensorflow==2.15.0  # Or match your Colab TF version
+scikit-learn
+numpy
+python-dotenv
+langchain
+langchain-google-genai # For Gemini
+langchain-community
