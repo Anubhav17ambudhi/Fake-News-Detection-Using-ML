@@ -16,7 +16,7 @@ class FactCheckResult(BaseModel):
 
 # 2. Initialize the LLM and the Search Tool
 # Note: Ensure the model string matches the one you successfully fixed in the previous steps
-llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.1)
+llm = ChatGoogleGenerativeAI(model="gemini-3.5-flash", temperature=0.1)
 structured_llm = llm.with_structured_output(FactCheckResult)
 
 search_tool = DuckDuckGoSearchResults(backend="news")
