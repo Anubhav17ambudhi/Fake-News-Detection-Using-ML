@@ -1,51 +1,63 @@
-import pickle
-import numpy as np
-import asyncio
-from tensorflow.keras.models import load_model
-from tensorflow.keras.preprocessing.sequence import pad_sequences
+import os
+import torch
+import torch.nn.functional as F
+from transformers import DistilBertTokenizerFast, DistilBertForSequenceClassification
 
-# 1. Load the artifacts globally (so they only load once when FastAPI starts)
-try:
-    print("Loading ML models into memory. This might take a few seconds...")
-    model = load_model("models/dual_branch_fakenews_model.h5")
-    
-    with open("models/tfidf_vectorizer.pkl", "rb") as f:
-        tfidf_vectorizer = pickle.load(f)
-        
-    with open("models/tokenizer.pkl", "rb") as f:
-        tokenizer = pickle.load(f)
-        
-    print("ML models loaded successfully!")
-except Exception as e:
-    print(f"Error loading models. Ensure files are in the 'models' directory. Details: {e}")
+# Construct path to the Hugging Face model folder
+# Ensure this folder is at the root of your backend directory (alongside main.py)
+MODEL_DIR = os.path.join(os.path.dirname(__file__), "..", "distilbert_fakenews_final")
 
-async def predict_ml(text: str) -> float:
-    """
-    Takes raw article text, runs it through the dual-branch Keras model, 
-    and returns a probability score between 0.0 and 1.0.
-    """
-    # 2. Text Preprocessing (Must match Colab exactly)
-    # Truncate to the first 500 words to match the trained dimensions
-    short_text = " ".join(text.split()[:500])
+# Global instances mapped into memory during server startup
+tokenizer = None
+model = None
+
+def load_ml_models():
+    global tokenizer, model
+    if not os.path.exists(MODEL_DIR):
+        raise FileNotFoundError(f"Model directory not found at {MODEL_DIR}. Please download the 4 Hugging Face files.")
     
-    # 3. Prepare Branch A: TF-IDF Features
-    # Note: We put the text in a list [short_text] because the vectorizer expects an iterable of documents
-    X_tfidf = tfidf_vectorizer.transform([short_text]).toarray()
+    # Load token rules and weights directly from the local folder
+    tokenizer = DistilBertTokenizerFast.from_pretrained(MODEL_DIR)
+    model = DistilBertForSequenceClassification.from_pretrained(MODEL_DIR)
     
-    # 4. Prepare Branch B: Sequence Features
-    X_seq = tokenizer.texts_to_sequences([short_text])
-    X_seq_padded = pad_sequences(X_seq, maxlen=500)
+    # Freeze gradients and set to inference mode for maximum speed
+    model.eval()
     
-    # 5. Run Inference
-    # We use asyncio.to_thread because Keras model.predict is a blocking synchronous function. 
-    # This prevents the ML calculation from freezing the rest of your FastAPI app.
-    # Run synchronously on the main thread to prevent TF deadlocks
-    prediction = model.predict(
-        {"tfidf_input": X_tfidf, "seq_input": X_seq_padded},
-        verbose=0
-    )
+    # Automatically map to CUDA if an NVIDIA GPU is available on the local machine
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+
+async def predict_ml(text: str) -> dict:
+    global tokenizer, model
+    if tokenizer is None or model is None:
+        load_ml_models()
+        
+    device = next(model.parameters()).device
     
-    # prediction is a 2D numpy array like [[0.854]]. We extract the float scalar.
-    probability = float(prediction[0][0])
+    # Tokenize input using DistilBERT's 512-token context window
+    inputs = tokenizer(
+        text,
+        return_tensors="pt",
+        truncation=True,
+        padding=True,
+        max_length=512
+    ).to(device)
     
-    return probability
+    # Run forward pass without tracking graph history (saves RAM)
+    with torch.no_grad():
+        outputs = model(**inputs)
+        logits = outputs.logits
+        probabilities = F.softmax(logits, dim=-1)
+        
+    # Extract probabilities (Index 0 = Fake, Index 1 = Real based on our dataset mapping)
+    prob_fake = probabilities[0][0].item()
+    prob_real = probabilities[0][1].item()
+    
+    predicted_class = torch.argmax(probabilities, dim=-1).item()
+    verdict = "Real" if predicted_class == 1 else "Fake"
+    confidence = prob_real if predicted_class == 1 else prob_fake
+    
+    return {
+        "ml_verdict": verdict,
+        "ml_confidence": confidence
+    }

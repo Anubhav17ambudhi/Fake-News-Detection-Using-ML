@@ -1,4 +1,3 @@
-import os
 import json
 import asyncio
 from pydantic import BaseModel, Field
@@ -8,42 +7,43 @@ from langchain_community.tools import DuckDuckGoSearchResults
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 
-# 1. Define the Expected Data Structures for Local LLM
+# 1. Strict Pydantic schemas mapping what the local model must return
 class ArticleExtraction(BaseModel):
-    heading: str = Field(description="A generated heading for the article")
+    heading: str = Field(description="A concise generated heading summarizing the article")
     facts: List[str] = Field(description="A list of up to 5 main verifiable facts extracted from the article")
 
 class FactVerification(BaseModel):
     status: str = Field(description="Must be exactly: Supported, Contradicted, or Unverified")
-    reasoning: str = Field(description="1-2 sentences explaining the verdict based on the search evidence")
-    sources: List[str] = Field(description="List of URLs found in the evidence")
+    reasoning: str = Field(description="1-2 sentences explaining the verdict based exclusively on the search evidence")
+    sources: List[str] = Field(description="List of exact URLs found in the search evidence")
 
-# 2. Initialize Local Ollama and Search
-# Replace "qwen:4b" with your exact Ollama model name (e.g., "qwen2.5", "llama3")
-# format="json" forces the local model to output parsable JSON
+# 2. Local Model Initialization
+# format="json" acts as a strict schema enforcer for local Ollama models
 llm = ChatOllama(model="qwen:4b", temperature=0.1, format="json")
 search_tool = DuckDuckGoSearchResults(backend="news", max_results=3)
 
-# 3. Setup Parsers
 extraction_parser = JsonOutputParser(pydantic_object=ArticleExtraction)
 verification_parser = JsonOutputParser(pydantic_object=FactVerification)
 
 async def verify_single_fact(heading: str, fact: str) -> dict:
-    """Helper function to search and verify a single fact."""
-    print(f"  -> [Search] Verifying: {fact[:50]}...")
+    """Independent worker function to search and evaluate a specific fact."""
+    print(f"  -> [Search] Querying: {fact[:40]}...")
     search_query = f"{heading} {fact}"
     
-    # Execute web search
-    search_results = await asyncio.to_thread(search_tool.run, search_query)
-    
-    # Synthesize verdict with Ollama
+    try:
+        # Offload network IO to a background thread to allow concurrent fact-checking
+        search_results = await asyncio.to_thread(search_tool.run, search_query)
+    except Exception as e:
+        print(f"  -> [Search Error] on fact '{fact[:20]}': {e}")
+        search_results = "No search results retrieved due to network or proxy error."
+
     verify_prompt = PromptTemplate(
-        template="""You are a strict fact-checker. Evaluate the claim against the web search evidence.
+        template="""You are a strict journalistic fact-checker. Evaluate the claim against the provided web search evidence.
         
         Claim: {claim}
-        Evidence: {evidence}
+        Search Evidence: {evidence}
         
-        Provide your response in JSON matching this schema:
+        Provide your response in raw JSON format matching this schema:
         {format_instructions}
         """,
         input_variables=["claim", "evidence"],
@@ -60,27 +60,28 @@ async def verify_single_fact(heading: str, fact: str) -> dict:
         return {
             "fact": fact,
             "status": verdict.get("status", "Unverified"),
-            "reasoning": verdict.get("reasoning", "Error analyzing evidence."),
+            "reasoning": verdict.get("reasoning", "Evidence evaluation completed without reasoning."),
             "sources": verdict.get("sources", [])
         }
     except Exception as e:
-        print(f"  -> [Error] Failed to verify fact: {e}")
+        print(f"  -> [Parse Error] Local LLM failed to parse verification for '{fact[:20]}': {e}")
         return {
             "fact": fact,
             "status": "Unverified",
-            "reasoning": "Local LLM failed to parse the verification.",
+            "reasoning": "The local AI failed to evaluate the search evidence correctly.",
             "sources": []
         }
 
 async def run_agent(text: str) -> dict:
     try:
-        print("\n[Agent] Step 1: Extracting heading and main facts via Ollama...")
+        print("\n[Agent] Step 1: Extracting Heading and Facts (Local Qwen:4b)...")
         extract_prompt = PromptTemplate(
-            template="""Analyze the following article. Generate a concise heading and extract up to 5 main verifiable facts.
+            template="""Analyze the following text. Generate a concise heading and extract a maximum of 5 main verifiable facts.
+            Focus on claims involving dates, names, events, and statistics.
             
-            Article: {text}
+            Article Text: {text}
             
-            Provide your response in JSON matching this schema:
+            Provide your response in raw JSON format matching this schema:
             {format_instructions}
             """,
             input_variables=["text"],
@@ -92,17 +93,25 @@ async def run_agent(text: str) -> dict:
         
         heading = extraction.get("heading", "News Article")
         facts = extraction.get("facts", [])
+        
         print(f"[Agent] Extracted Heading: {heading}")
-        print(f"[Agent] Extracted {len(facts)} facts.")
+        print(f"[Agent] Successfully isolated {len(facts)} facts to verify.")
 
-        print("\n[Agent] Step 2: Verifying facts concurrently...")
-        # Run fact verifications in parallel for speed
+        if not facts:
+            return {
+                "heading": heading,
+                "verified_facts": [],
+                "overall_verdict": "Unverified"
+            }
+
+        print("\n[Agent] Step 2: Firing concurrent fact-checking threads...")
+        # Execute the map-reduce pattern: simultaneously verify all extracted facts
         verification_tasks = [verify_single_fact(heading, fact) for fact in facts]
         verified_facts = await asyncio.gather(*verification_tasks)
         
-        print("[Agent] All facts verified!")
+        print("[Agent] All concurrent verification threads finished!")
         
-        # Calculate an overall agent verdict based on individual facts
+        # Calculate overall verdict by checking if any single fact was fully contradicted
         statuses = [f["status"].lower() for f in verified_facts]
         if "contradicted" in statuses:
             overall_verdict = "Fake"
@@ -118,9 +127,9 @@ async def run_agent(text: str) -> dict:
         }
 
     except Exception as e:
-        print(f"Agent Error: {e}")
+        print(f"Agent Error during main execution: {e}")
         return {
-            "heading": "Error",
+            "heading": "Extraction Error",
             "verified_facts": [],
             "overall_verdict": "Error"
         }
