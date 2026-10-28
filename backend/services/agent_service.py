@@ -1,70 +1,126 @@
 import os
+import json
 import asyncio
-from dotenv import load_dotenv
 from pydantic import BaseModel, Field
-from langchain_google_genai import ChatGoogleGenerativeAI
+from typing import List
+from langchain_community.chat_models import ChatOllama
 from langchain_community.tools import DuckDuckGoSearchResults
 from langchain_core.prompts import PromptTemplate
-from langchain_core.output_parsers import StrOutputParser
+from langchain_core.output_parsers import JsonOutputParser
 
-load_dotenv()
+# 1. Define the Expected Data Structures for Local LLM
+class ArticleExtraction(BaseModel):
+    heading: str = Field(description="A generated heading for the article")
+    facts: List[str] = Field(description="A list of up to 5 main verifiable facts extracted from the article")
 
-# 1. Define the exact JSON structure we want the LLM to output
-class FactCheckResult(BaseModel):
-    reasoning: str = Field(description="A 3-4 sentence explanation verifying or debunking the claim based on the evidence.")
-    sources: list[str] = Field(description="List of URLs or publication names found in the evidence. Return empty list if none.")
+class FactVerification(BaseModel):
+    status: str = Field(description="Must be exactly: Supported, Contradicted, or Unverified")
+    reasoning: str = Field(description="1-2 sentences explaining the verdict based on the search evidence")
+    sources: List[str] = Field(description="List of URLs found in the evidence")
 
-# 2. Initialize the LLM and the Search Tool
-# Note: Ensure the model string matches the one you successfully fixed in the previous steps
-llm = ChatGoogleGenerativeAI(model="gemini-3.5-flash", temperature=0.1)
-structured_llm = llm.with_structured_output(FactCheckResult)
+# 2. Initialize Local Ollama and Search
+# Replace "qwen:4b" with your exact Ollama model name (e.g., "qwen2.5", "llama3")
+# format="json" forces the local model to output parsable JSON
+llm = ChatOllama(model="qwen:4b", temperature=0.1, format="json")
+search_tool = DuckDuckGoSearchResults(backend="news", max_results=3)
 
-search_tool = DuckDuckGoSearchResults(backend="news")
+# 3. Setup Parsers
+extraction_parser = JsonOutputParser(pydantic_object=ArticleExtraction)
+verification_parser = JsonOutputParser(pydantic_object=FactVerification)
 
-# 3. The Agent Pipeline
-async def run_agent(text: str) -> dict:
+async def verify_single_fact(heading: str, fact: str) -> dict:
+    """Helper function to search and verify a single fact."""
+    print(f"  -> [Search] Verifying: {fact[:50]}...")
+    search_query = f"{heading} {fact}"
+    
+    # Execute web search
+    search_results = await asyncio.to_thread(search_tool.run, search_query)
+    
+    # Synthesize verdict with Ollama
+    verify_prompt = PromptTemplate(
+        template="""You are a strict fact-checker. Evaluate the claim against the web search evidence.
+        
+        Claim: {claim}
+        Evidence: {evidence}
+        
+        Provide your response in JSON matching this schema:
+        {format_instructions}
+        """,
+        input_variables=["claim", "evidence"],
+        partial_variables={"format_instructions": verification_parser.get_format_instructions()}
+    )
+    
+    chain = verify_prompt | llm | verification_parser
+    
     try:
-        print("\n[Agent] Step 1: Extracting claim...")
-        extraction_prompt = PromptTemplate.from_template(
-            "Extract the single most important verifiable factual claim from this article. Keep it under 15 words.\n\nArticle: {text}"
-        )
-        
-        # StrOutputParser() safely forces whatever the LLM returns into a pure Python string
-        claim_chain = extraction_prompt | llm | StrOutputParser()
-        search_query = await claim_chain.ainvoke({"text": text})
-        search_query = search_query.strip()
-        
-        print(f"[Agent] Extracted claim: {search_query}")
-
-        print("[Agent] Step 2: Searching DuckDuckGo...")
-        search_results = await asyncio.to_thread(search_tool.run, search_query)
-        print("[Agent] Search complete.")
-
-        print("[Agent] Step 3: Synthesizing final verdict...")
-        synthesis_prompt = PromptTemplate.from_template(
-            """You are an expert fact-checker. Evaluate the original claim against the live web search evidence.
-            
-            Original Claim: {claim}
-            Web Search Evidence: {evidence}
-            
-            Determine if the claim is supported, contradicted, or unverified by the evidence.
-            """
-        )
-        
-        # structured_llm safely forces the output into our Pydantic FactCheckResult object
-        synthesis_chain = synthesis_prompt | structured_llm
-        final_verdict = await synthesis_chain.ainvoke({
+        verdict = await chain.ainvoke({
             "claim": search_query, 
             "evidence": search_results
         })
+        return {
+            "fact": fact,
+            "status": verdict.get("status", "Unverified"),
+            "reasoning": verdict.get("reasoning", "Error analyzing evidence."),
+            "sources": verdict.get("sources", [])
+        }
+    except Exception as e:
+        print(f"  -> [Error] Failed to verify fact: {e}")
+        return {
+            "fact": fact,
+            "status": "Unverified",
+            "reasoning": "Local LLM failed to parse the verification.",
+            "sources": []
+        }
+
+async def run_agent(text: str) -> dict:
+    try:
+        print("\n[Agent] Step 1: Extracting heading and main facts via Ollama...")
+        extract_prompt = PromptTemplate(
+            template="""Analyze the following article. Generate a concise heading and extract up to 5 main verifiable facts.
+            
+            Article: {text}
+            
+            Provide your response in JSON matching this schema:
+            {format_instructions}
+            """,
+            input_variables=["text"],
+            partial_variables={"format_instructions": extraction_parser.get_format_instructions()}
+        )
         
-        print("[Agent] Verification complete!")
-        # Convert the Pydantic object safely to a dictionary for FastAPI
-        return final_verdict.dict()
+        extract_chain = extract_prompt | llm | extraction_parser
+        extraction = await extract_chain.ainvoke({"text": text})
+        
+        heading = extraction.get("heading", "News Article")
+        facts = extraction.get("facts", [])
+        print(f"[Agent] Extracted Heading: {heading}")
+        print(f"[Agent] Extracted {len(facts)} facts.")
+
+        print("\n[Agent] Step 2: Verifying facts concurrently...")
+        # Run fact verifications in parallel for speed
+        verification_tasks = [verify_single_fact(heading, fact) for fact in facts]
+        verified_facts = await asyncio.gather(*verification_tasks)
+        
+        print("[Agent] All facts verified!")
+        
+        # Calculate an overall agent verdict based on individual facts
+        statuses = [f["status"].lower() for f in verified_facts]
+        if "contradicted" in statuses:
+            overall_verdict = "Fake"
+        elif "supported" in statuses and "contradicted" not in statuses:
+            overall_verdict = "Real"
+        else:
+            overall_verdict = "Unverified"
+
+        return {
+            "heading": heading,
+            "verified_facts": verified_facts,
+            "overall_verdict": overall_verdict
+        }
 
     except Exception as e:
         print(f"Agent Error: {e}")
         return {
-            "reasoning": "The agentic verification system encountered an error while searching the web.",
-            "sources": []
+            "heading": "Error",
+            "verified_facts": [],
+            "overall_verdict": "Error"
         }
