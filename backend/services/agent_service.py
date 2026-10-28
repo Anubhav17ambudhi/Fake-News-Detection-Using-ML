@@ -2,7 +2,7 @@ import json
 import asyncio
 from pydantic import BaseModel, Field
 from typing import List
-from langchain_community.chat_models import ChatOllama
+from langchain_ollama import ChatOllama
 from langchain_community.tools import DuckDuckGoSearchResults
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
@@ -19,7 +19,12 @@ class FactVerification(BaseModel):
 
 # 2. Local Model Initialization
 # format="json" acts as a strict schema enforcer for local Ollama models
-llm = ChatOllama(model="qwen:4b", temperature=0.1, format="json")
+llm = ChatOllama(
+    model="qwen2.5:1.5b", 
+    temperature=0.1, 
+    format="json", 
+    num_predict=300
+)
 search_tool = DuckDuckGoSearchResults(backend="news", max_results=3)
 
 extraction_parser = JsonOutputParser(pydantic_object=ArticleExtraction)
@@ -53,7 +58,7 @@ async def verify_single_fact(heading: str, fact: str) -> dict:
     chain = verify_prompt | llm | verification_parser
     
     try:
-        verdict = await chain.ainvoke({
+        verdict = await asyncio.to_thread(chain.invoke, {
             "claim": search_query, 
             "evidence": search_results
         })
@@ -89,7 +94,8 @@ async def run_agent(text: str) -> dict:
         )
         
         extract_chain = extract_prompt | llm | extraction_parser
-        extraction = await extract_chain.ainvoke({"text": text})
+        # Run the synchronous .invoke() safely in a background thread
+        extraction = await asyncio.to_thread(extract_chain.invoke, {"text": text})
         
         heading = extraction.get("heading", "News Article")
         facts = extraction.get("facts", [])

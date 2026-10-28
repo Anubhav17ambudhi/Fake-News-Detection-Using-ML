@@ -48,7 +48,7 @@ async def verify_article(request: ArticleRequest):
         # The ML branch uses DistilBERT (extremely fast).
         # The Agent branch runs 1 extraction + N verification calls locally on Qwen:4b (requires more time).
         ml_task = asyncio.wait_for(predict_ml(request.text), timeout=15.0)
-        agent_task = asyncio.wait_for(run_agent(request.text), timeout=90.0) 
+        agent_task = asyncio.wait_for(run_agent(request.text), timeout=250.0) 
         
         ml_result, agent_result = await asyncio.gather(ml_task, agent_task)
         
