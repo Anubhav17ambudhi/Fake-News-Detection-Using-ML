@@ -1,21 +1,22 @@
 # Veritas AI - Real-Time Agentic Fake News Detection Frontend
 
-A modern, responsive React + Tailwind CSS dashboard that communicates in real-time with the FastAPI backend over WebSockets to provide instant DistilBERT neural classification and streaming multi-agent web verification.
+A modern, responsive React + Tailwind CSS dashboard that communicates in real-time with the FastAPI backend over WebSockets to provide instant DistilBERT neural classification and streaming multi-agent web verification powered by **Google Gemini 1.5 Flash**.
 
 ---
 
 ## 🚀 How to Run and Test the Application
 
-### Step 1: Start the FastAPI Backend
-Ensure your Python virtual environment is activated and your Ollama model (`qwen2.5:1.5b`) is running:
+### Step 1: Configure & Start the FastAPI Backend
+Ensure your Python virtual environment is activated and dependencies are installed (`pip install -r requirements.txt`).
 
 1. Open a terminal in the `backend` folder:
    ```bash
-   cd "d:\CSE\#7th_Sem\MINI PROJECT MATERIAL\CODE\backend"
+   cd backend
    ```
-2. Make sure Ollama is running in the background:
-   ```bash
-   ollama serve
+2. Ensure your `.env` file has your Google Gemini API key:
+   ```env
+   GEMINI_API_KEY=your_gemini_api_key_here
+   GEMINI_MODEL=gemini-1.5-flash
    ```
 3. Run the FastAPI server:
    ```bash
@@ -26,17 +27,20 @@ Ensure your Python virtual environment is activated and your Ollama model (`qwen
 ---
 
 ### Step 2: Start the React Frontend Development Server
-All dependencies (`lucide-react`, `tailwindcss`, etc.) are already installed!
 
 1. Open a new terminal in the `frontend` folder:
    ```bash
-   cd "d:\CSE\#7th_Sem\MINI PROJECT MATERIAL\CODE\frontend"
+   cd frontend
    ```
-2. Start the Vite development server:
+2. Install frontend dependencies (if not already installed):
+   ```bash
+   npm install
+   ```
+3. Start the Vite development server:
    ```bash
    npm run dev
    ```
-3. Open your browser at the URL shown in the terminal (usually `http://localhost:5173`).
+4. Open your browser at the URL shown in the terminal (usually `http://localhost:5173`).
 
 ---
 
@@ -50,5 +54,5 @@ All dependencies (`lucide-react`, `tailwindcss`, etc.) are already installed!
 3. Watch the real-time agent workflow unfold:
    - **Phase 1**: Instant DistilBERT neural prediction appears in ~250ms with confidence score.
    - **Phase 2**: Article heading is extracted and claims appear with `⏳ Verifying Web Evidence...` loaders.
-   - **Phase 3**: Concurrent DuckDuckGo search threads verify each claim one by one, turning green, red, or orange with reasoning and source links.
+   - **Phase 3**: Concurrent DuckDuckGo search threads verify each claim one by one with **Gemini Flash**, turning green, red, or orange with reasoning and source links.
    - **Phase 4**: The Final System Verdict banner illuminates at the bottom of the page.
