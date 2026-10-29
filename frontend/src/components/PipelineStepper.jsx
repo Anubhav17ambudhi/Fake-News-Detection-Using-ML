@@ -29,7 +29,7 @@ export default function PipelineStepper({ mlData, articleHeading, facts, agentVe
     {
       id: 3,
       title: "Claim Extraction",
-      desc: articleHeading ? "Claims identified" : "Ollama LLM",
+      desc: articleHeading ? "Claims identified" : "Gemini Flash",
       icon: ListChecks,
       active: isProcessing && step2 && !step3,
       done: step3,

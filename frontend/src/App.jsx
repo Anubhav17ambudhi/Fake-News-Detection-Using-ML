@@ -386,7 +386,7 @@ export default function App() {
             <span>•</span>
             <span>DistilBERT Classifier</span>
             <span>•</span>
-            <span>LangChain + Ollama Qwen2.5</span>
+            <span>LangChain + Gemini Flash</span>
             <span>•</span>
             <span>DuckDuckGo News</span>
           </div>

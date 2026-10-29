@@ -76,7 +76,7 @@ export default function Header({ connectionStatus, isProcessing, wsUrl, onWsUrlC
             </span>
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-800/80 border border-slate-700/60 text-slate-300">
               <Bot className="w-3 h-3 text-violet-400" />
-              LangChain + Ollama
+              LangChain + Gemini Flash
             </span>
           </div>
 
