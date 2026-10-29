@@ -1,2 +1,3 @@
 .env
 __pycache__
+backend/distilbert_fakenews_final/model.safetensors
