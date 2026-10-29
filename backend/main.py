@@ -1,4 +1,9 @@
 import os
+from dotenv import load_dotenv
+
+# Load environment variables (.env)
+load_dotenv()
+
 # Force bypass campus proxy before ANY libraries initialize
 os.environ["NO_PROXY"] = "localhost,127.0.0.1,::1"
 os.environ["no_proxy"] = "localhost,127.0.0.1,::1"
@@ -50,7 +55,7 @@ async def verify_article(request: ArticleRequest):
         agent_task = asyncio.wait_for(run_agent(request.text), timeout=300.0) 
         ml_result, agent_result = await asyncio.gather(ml_task, agent_task)
     except asyncio.TimeoutError:
-        raise HTTPException(status_code=504, detail="The local LLM timed out.")
+        raise HTTPException(status_code=504, detail="The Gemini agent timed out.")
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal server error.")
 

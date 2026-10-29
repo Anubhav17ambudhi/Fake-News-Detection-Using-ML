@@ -5,12 +5,16 @@ import asyncio
 import traceback
 from pydantic import BaseModel, Field
 from typing import List
-from langchain_ollama import ChatOllama
+from dotenv import load_dotenv
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_community.tools import DuckDuckGoSearchResults
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 
-# Force Python to bypass the campus proxy for local Ollama connections
+# Load environment variables (.env)
+load_dotenv()
+
+# Force Python to bypass proxy for local connections if needed
 os.environ["NO_PROXY"] = "localhost,127.0.0.1,::1"
 os.environ["no_proxy"] = "localhost,127.0.0.1,::1"
 
@@ -24,12 +28,14 @@ class FactVerification(BaseModel):
     reasoning: str = Field(description="1-2 sentences explaining the verdict based exclusively on the search evidence")
     sources: List[str] = Field(description="List of exact URLs found in the search evidence")
 
-# 2. Local Model Initialization (Optimized for CPU, num_predict expanded to 1024 to prevent JSON truncation)
-llm = ChatOllama(
-    model="qwen2.5:1.5b", 
-    temperature=0.1, 
-    format="json", 
-    num_predict=1024
+# 2. Gemini Flash Model Initialization
+gemini_api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+gemini_model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+
+llm = ChatGoogleGenerativeAI(
+    model=gemini_model, 
+    temperature=0.1,
+    google_api_key=gemini_api_key
 )
 search_tool = DuckDuckGoSearchResults(backend="news", max_results=3)
 
@@ -108,11 +114,11 @@ async def verify_single_fact(heading: str, fact: str) -> dict:
             "sources": verdict.get("sources", [])
         }
     except Exception as e:
-        print(f"  -> [Parse Error] Local LLM failed to parse verification for '{fact[:20]}': {e}")
+        print(f"  -> [Parse Error] Gemini Agent failed to parse verification for '{fact[:20]}': {e}")
         return {
             "fact": fact,
             "status": "Inconclusive",
-            "reasoning": f"Local AI verification evaluation inconclusive: {str(e)[:60]}",
+            "reasoning": f"Gemini verification evaluation inconclusive: {str(e)[:60]}",
             "sources": []
         }
 
