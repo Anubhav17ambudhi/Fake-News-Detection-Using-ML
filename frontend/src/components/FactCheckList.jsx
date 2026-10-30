@@ -15,7 +15,7 @@ export default function FactCheckList({ heading, facts, isProcessing }) {
               Agent Claim Extraction & Web Evidence Checklist
             </h3>
             <p className="text-[11px] text-slate-500 font-mono">
-              Gemini Flash + DuckDuckGo Live Search
+              Gemini Flash + Live Multi-Source News Search
             </p>
           </div>
         </div>

@@ -142,7 +142,7 @@ export default function FactItem({ fact, index }) {
               })
             ) : (
               <span className="text-[11px] text-slate-500 italic">
-                No direct URLs indexed in DuckDuckGo news results
+                No external web source URLs indexed for this specific claim
               </span>
             )}
           </div>
