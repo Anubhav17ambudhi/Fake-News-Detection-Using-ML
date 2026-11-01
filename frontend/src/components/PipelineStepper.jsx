@@ -1,117 +1,87 @@
 import React from 'react';
-import { FileText, Cpu, ListChecks, Globe, Award, CheckCircle2 } from 'lucide-react';
+import { Check, Loader2 } from 'lucide-react';
 
-export default function PipelineStepper({ mlData, articleHeading, facts, agentVerdict, isProcessing }) {
-  // Determine status of each step
-  const step1 = true; // Ingestion
-  const step2 = mlData !== null; // ML Verdict
-  const step3 = articleHeading !== null; // Heading & claims extracted
-  const step4 = facts && facts.length > 0 && facts.some(f => f.status !== 'verifying'); // Fact checks underway/completed
-  const step5 = agentVerdict !== null; // Final consensus
+export default function PipelineStepper({ mlData, articleHeading, facts = [], agentVerdict, isProcessing }) {
+  const step1Done = isProcessing || mlData !== null;
+  const step2Done = mlData !== null;
+  const step3Done = articleHeading !== null;
+  const step4Done = facts.length > 0 && facts.every((f) => f.status !== 'verifying');
+  const step5Done = agentVerdict !== null;
 
   const steps = [
     {
       id: 1,
-      title: "Input Text",
-      desc: "20+ words",
-      icon: FileText,
-      active: true,
-      done: isProcessing || step2,
+      label: 'Article Ingestion',
+      status: step1Done ? 'done' : isProcessing ? 'current' : 'pending',
     },
     {
       id: 2,
-      title: "DistilBERT ML",
-      desc: mlData ? `${mlData.ml_verdict} (${(mlData.ml_confidence * 100).toFixed(0)}%)` : "Neural Classifier",
-      icon: Cpu,
-      active: isProcessing && !step2,
-      done: step2,
+      label: 'DistilBERT Stylometry',
+      status: step2Done ? 'done' : isProcessing && !step2Done ? 'current' : 'pending',
     },
     {
       id: 3,
-      title: "Claim Extraction",
-      desc: articleHeading ? "Claims identified" : "Gemini Flash",
-      icon: ListChecks,
-      active: isProcessing && step2 && !step3,
-      done: step3,
+      label: 'Claim Extraction',
+      status: step3Done ? 'done' : isProcessing && step2Done && !step3Done ? 'current' : 'pending',
     },
     {
       id: 4,
-      title: "Web Verification",
-      desc: facts.length > 0 ? `${facts.filter(f => f.status !== 'verifying').length}/${facts.length} Verified` : "DuckDuckGo News",
-      icon: Globe,
-      active: isProcessing && step3 && !step5,
-      done: facts.length > 0 && facts.every(f => f.status !== 'verifying'),
+      label: 'Live Wire Verification',
+      status: step4Done ? 'done' : isProcessing && step3Done && !step4Done ? 'current' : 'pending',
     },
     {
       id: 5,
-      title: "Final Verdict",
-      desc: agentVerdict ? agentVerdict : "Synthesized",
-      icon: Award,
-      active: isProcessing && step4 && !step5,
-      done: step5,
+      label: 'Consensus Synthesis',
+      status: step5Done ? 'done' : isProcessing && step4Done && !step5Done ? 'current' : 'pending',
     },
   ];
 
-  return (
-    <div className="w-full bg-slate-900/60 border border-slate-800/80 rounded-2xl p-4 shadow-sm">
-      <div className="flex items-center justify-between text-xs font-medium text-slate-400 mb-3 px-1">
-        <span>AGENTIC WORKFLOW PIPELINE</span>
-        {isProcessing && (
-          <span className="text-cyan-400 font-mono flex items-center gap-1.5 animate-pulse">
-            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
-            ACTIVE EXECUTION
-          </span>
-        )}
-      </div>
+  const hasStarted = isProcessing || mlData || articleHeading || agentVerdict;
+  if (!hasStarted) return null;
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5">
-        {steps.map((st) => {
-          const Icon = st.icon;
-          return (
-            <div
-              key={st.id}
-              className={`relative rounded-xl p-3 border transition-all duration-300 flex flex-col justify-between ${
-                st.done
-                  ? 'bg-emerald-950/20 border-emerald-500/30 text-emerald-300'
-                  : st.active
-                  ? 'bg-indigo-950/30 border-indigo-500/50 text-indigo-300 ring-2 ring-indigo-500/20 shadow-md shadow-indigo-500/10'
-                  : 'bg-slate-900/40 border-slate-800/80 text-slate-500'
-              }`}
-            >
-              <div className="flex items-center justify-between mb-2">
-                <div
-                  className={`w-7 h-7 rounded-lg flex items-center justify-center ${
-                    st.done
-                      ? 'bg-emerald-500/20 text-emerald-400'
-                      : st.active
-                      ? 'bg-indigo-500/20 text-indigo-400 animate-bounce'
-                      : 'bg-slate-800 text-slate-500'
-                  }`}
-                >
-                  <Icon className="w-4 h-4" />
-                </div>
-                {st.done ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                ) : st.active ? (
-                  <span className="flex h-2 w-2 relative">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+  return (
+    <div className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl px-5 sm:px-6 py-3.5 shadow-2xs mb-6 animate-fade-in transition-colors">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+        <div className="text-stone-500 dark:text-zinc-400 font-semibold uppercase tracking-wider text-[11px] shrink-0">
+          Pipeline Status:
+        </div>
+
+        <div className="flex items-center flex-wrap gap-2 sm:gap-3.5">
+          {steps.map((st, idx) => (
+            <React.Fragment key={st.id}>
+              <div className="flex items-center gap-1.5">
+                {st.status === 'done' ? (
+                  <span className="w-4 h-4 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 flex items-center justify-center shrink-0">
+                    <Check className="w-2.5 h-2.5 stroke-[3]" />
+                  </span>
+                ) : st.status === 'current' ? (
+                  <span className="w-4 h-4 rounded-full bg-stone-200 dark:bg-zinc-700 text-stone-800 dark:text-zinc-200 flex items-center justify-center shrink-0">
+                    <Loader2 className="w-2.5 h-2.5 animate-spin text-stone-700 dark:text-zinc-200" />
                   </span>
                 ) : (
-                  <span className="text-[10px] font-mono text-slate-600">#{st.id}</span>
+                  <span className="w-4 h-4 rounded-full bg-stone-100 dark:bg-zinc-800 text-stone-400 dark:text-zinc-500 flex items-center justify-center text-[10px] font-mono shrink-0">
+                    {st.id}
+                  </span>
                 )}
+                <span
+                  className={`text-xs ${
+                    st.status === 'done'
+                      ? 'text-stone-700 dark:text-zinc-300 font-medium'
+                      : st.status === 'current'
+                      ? 'text-stone-900 dark:text-zinc-100 font-bold'
+                      : 'text-stone-400 dark:text-zinc-500'
+                  }`}
+                >
+                  {st.label}
+                </span>
               </div>
-              <div>
-                <p className={`text-xs font-semibold truncate ${st.done ? 'text-emerald-200' : st.active ? 'text-indigo-200' : 'text-slate-400'}`}>
-                  {st.title}
-                </p>
-                <p className="text-[11px] text-slate-400 truncate mt-0.5 font-mono">
-                  {st.desc}
-                </p>
-              </div>
-            </div>
-          );
-        })}
+
+              {idx < steps.length - 1 && (
+                <span className="text-stone-300 dark:text-zinc-700 hidden sm:inline">→</span>
+              )}
+            </React.Fragment>
+          ))}
+        </div>
       </div>
     </div>
   );

@@ -35,14 +35,14 @@ verification_parser = JsonOutputParser(pydantic_object=FactVerification)
 
 # 2. Gemini Multi-Model Fallback Manager
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-PRIMARY_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+PRIMARY_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 FALLBACK_MODELS = [
     PRIMARY_MODEL,
-    "gemini-3.5-flash",
-    "gemini-3.5-flash-lite",
     "gemini-flash-lite-latest",
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
 ]
 # Remove duplicates while preserving order
 MODELS_TO_TRY = list(dict.fromkeys(FALLBACK_MODELS))

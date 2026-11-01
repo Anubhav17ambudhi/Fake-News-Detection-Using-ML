@@ -17,6 +17,9 @@ import time
 from services.ml_service import load_ml_models, predict_ml
 from services.agent_service import run_agent, run_agent_stream 
 
+from fastapi.middleware.cors import CORSMiddleware
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("[System] Loading DistilBERT ML Model into memory...")
@@ -26,6 +29,15 @@ async def lifespan(app: FastAPI):
     print("[System] Shutting down...")
 
 app = FastAPI(title="Fake News Detection API", lifespan=lifespan)
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class ArticleRequest(BaseModel):
     text: str
